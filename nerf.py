@@ -113,7 +113,6 @@ class FineNeRFSampler:
             d = d.unsqueeze(0)
             t = t.unsqueeze(0)
 
-        print(o.shape, d.shape, t.shape)
         sigma = self.model.sigma_from_ray(o, d, t)
 
         delta = t[..., 1:] - t[..., :-1]
@@ -126,6 +125,11 @@ class FineNeRFSampler:
                
         # Inverse pdf sampling
         ts = inverse_transform_sampling(cdf, self.Nf) * (self.t_max - self.t_min) + self.t_min
+
+        ts = concatenated = torch.cat((ts, t), dim=1)
+        ts, _ = torch.sort(concatenated, dim=1)
+
+
         return ts if not reshape else ts[0]
 
 class NeRF(nn.Module):
@@ -198,7 +202,6 @@ class NeRF(nn.Module):
         # Next 4 layers of the network => Outputs sigma values for the Nc samples
         # Then we concatenate the output with gamma(d)
         x_branch2 = self.branch2(concatenated_input)
-        print(x_branch2.shape, d.shape)
         concatenated_input = torch.cat((x_branch2[:, 1:], d), dim=1) # We remove the first element of x_branch2 because it is the sigma value
 
         sigma = x_branch2[:, :1]               # Sigma values
@@ -274,6 +277,7 @@ class NeRF(nn.Module):
         @param d: Tensor of shape (n_rays, 3)
         """
         t = self.sampler.sample(o, d)
+        assert t.shape[1] == self.Nc + 1, f"Expected {self.Nc + 1} samples, got {t.shape[1]}"
         return self.get_colors_from_ray(o, d, t)
 
     def extract_rays_from_poses(self, poses):
@@ -427,8 +431,6 @@ class NeRF(nn.Module):
 
         o, d = tensor_od[..., :3], tensor_od[..., 3:] # Split the tensor into x and d
 
-        print(o.shape, d.shape, t.shape)
-        print(o.shape, t[:,:-1][:,:,None].shape, d.shape)
         x = o[:, None, :] + d[:, None, :] * t[:,:-1][:, :, None] # Get the x values; shape: (n_rays, Nc, 3)
 
         x = x.reshape(-1, 3)
